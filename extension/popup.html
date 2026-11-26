@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kestrel Bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="header">
+        <h1 class="title">Kestrel Bridge</h1>
+        <span id="status-badge" class="status-badge" data-state="offline">Offline</span>
+      </header>
+
+      <section class="control-row">
+        <label for="intercept-toggle" class="row-label">
+          <span>Intercept downloads</span>
+          <span class="row-hint">Send new browser downloads to desktop</span>
+        </label>
+        <input id="intercept-toggle" type="checkbox" class="toggle" />
+      </section>
+
+      <section class="field-group">
+        <label for="port-input" class="field-label">Local port</label>
+        <input id="port-input" type="number" min="1024" max="65535" class="input" />
+      </section>
+
+      <section class="field-group">
+        <label for="token-input" class="field-label">Pairing token</label>
+        <input
+          id="token-input"
+          type="password"
+          placeholder="Paste token from Kestrel Settings"
+          class="input"
+        />
+      </section>
+
+      <p id="feedback" class="feedback" role="status" aria-live="polite"></p>
+
+      <div class="actions">
+        <button id="bypass-btn" type="button" class="btn-secondary">Bypass next</button>
+        <button id="save-btn" type="button" class="btn-primary">Save &amp; Connect</button>
+      </div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

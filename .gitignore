@@ -1,0 +1,29 @@
+# Dependencies & Frontend Build
+node_modules/
+dist/
+.vite/
+*.local
+
+# Rust & Tauri Build Artifacts
+src-tauri/target/
+src-tauri/gen/
+**/*.rs.bk
+
+# Large Optional Sidecar Binaries (exceeds GitHub 100 MB limit)
+src-tauri/binaries/*.exe
+src-tauri/binaries/*.dll
+
+# Portable Runtime Data & User Config
+data/
+portable.flag
+
+# Logs & OS Files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+desktop.ini
+
+.agents/
+AGENTS.md
+PRD.md
