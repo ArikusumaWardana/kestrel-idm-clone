@@ -236,6 +236,13 @@ impl DownloadManager {
 
     pub async fn queue_browser_prompt(&self, mut req: CreateDownloadRequest) -> CreateDownloadRequest {
         let cfg = self.settings.read().await.clone();
+        if req.filename.as_deref().is_none_or(|f| f.trim().is_empty())
+            && (req.url.starts_with("http://") || req.url.starts_with("https://"))
+        {
+            if let Some(suggested) = self.http.suggest_filename(&req).await {
+                req.filename = Some(suggested);
+            }
+        }
         if req.save_dir.as_deref().is_none_or(|d| d.trim().is_empty()) {
             let hint_name = req.filename.as_deref().unwrap_or("");
             let routed = routing::resolve_save_dir(

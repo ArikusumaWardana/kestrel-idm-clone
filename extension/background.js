@@ -5,15 +5,32 @@ let wsConnected = false;
 let altKeyBypass = false;
 let reconnectTimer = null;
 let keepaliveTimer = null;
+let cachedConfig = {
+  port: DEFAULT_PORT,
+  token: "",
+  interceptEnabled: true,
+  bypassOnce: false,
+};
 
-async function getConfig() {
-  const data = await chrome.storage.local.get({
+async function refreshConfig() {
+  cachedConfig = await chrome.storage.local.get({
     port: DEFAULT_PORT,
     token: "",
     interceptEnabled: true,
     bypassOnce: false,
   });
-  return data;
+  return cachedConfig;
+}
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  for (const [key, { newValue }] of Object.entries(changes)) {
+    cachedConfig[key] = newValue;
+  }
+});
+
+async function getConfig() {
+  return refreshConfig();
 }
 
 async function setStatus(connected, lastError = "") {
@@ -29,7 +46,7 @@ function scheduleReconnect() {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connectWebSocket();
+    refreshConfig().then(() => connectWebSocket());
   }, 4000);
 }
 
@@ -133,20 +150,24 @@ chrome.downloads.onCreated.addListener(async (item) => {
     return;
   }
 
-  const config = await getConfig();
+  const config = cachedConfig.token ? cachedConfig : await getConfig();
   if (!config.interceptEnabled || !config.token || !wsConnected || altKeyBypass) {
     return;
   }
 
   if (config.bypassOnce) {
+    cachedConfig.bypassOnce = false;
     await chrome.storage.local.set({ bypassOnce: false });
     return;
   }
 
+  // Cancel immediately before async cookie/fetch calls so the browser does not
+  // linger on a Save As prompt while waiting for the localhost bridge.
   try {
-    await chrome.downloads.pause(item.id);
+    await chrome.downloads.cancel(item.id);
+    await chrome.downloads.erase({ id: item.id });
   } catch {
-    // Some instant downloads cannot be paused
+    // Ignore if already cancelled or cannot be erased
   }
 
   const cookies = await collectCookies(url);
@@ -168,15 +189,16 @@ chrome.downloads.onCreated.addListener(async (item) => {
       body: JSON.stringify(payload),
     });
 
-    if (res.ok) {
-      await chrome.downloads.cancel(item.id);
-      await chrome.downloads.erase({ id: item.id });
-    } else {
-      await chrome.downloads.resume(item.id);
+    if (!res.ok) {
+      cachedConfig.bypassOnce = true;
+      await chrome.storage.local.set({ bypassOnce: true });
+      await chrome.downloads.download({ url });
     }
   } catch {
     try {
-      await chrome.downloads.resume(item.id);
+      cachedConfig.bypassOnce = true;
+      await chrome.storage.local.set({ bypassOnce: true });
+      await chrome.downloads.download({ url });
     } catch {
       // Browser handles fallback
     }
@@ -200,11 +222,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  connectWebSocket();
+  refreshConfig().then(() => connectWebSocket());
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  connectWebSocket();
+  refreshConfig().then(() => connectWebSocket());
 });
 
-connectWebSocket();
+refreshConfig().then(() => connectWebSocket());

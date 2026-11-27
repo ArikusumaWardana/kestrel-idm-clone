@@ -186,6 +186,33 @@ impl HttpEngine {
         meta::save_meta_async(&self.paths, &m).await
     }
 
+    pub async fn suggest_filename(&self, req: &CreateDownloadRequest) -> Option<String> {
+        let custom_headers = req.headers.clone().unwrap_or_default();
+        let headers = build_request_headers(
+            req.cookies.as_deref(),
+            req.user_agent.as_deref(),
+            req.referer.as_deref(),
+            &custom_headers,
+        )
+        .ok()?;
+
+        if let Ok(Ok(probe)) =
+            tokio::time::timeout(Duration::from_secs(3), probe_url(&self.client, &req.url, &headers))
+                .await
+        {
+            if let Some(name) = probe.suggested_filename {
+                return Some(sanitize_filename(&name));
+            }
+        }
+
+        let from_url = filename_from_url(&req.url);
+        if Path::new(&from_url).extension().is_some() {
+            Some(sanitize_filename(&from_url))
+        } else {
+            None
+        }
+    }
+
     pub async fn create_task(
         &self,
         req: CreateDownloadRequest,
@@ -210,12 +237,11 @@ impl HttpEngine {
         )?;
 
         let probe = probe_url(&self.client, &req.url, &headers).await?;
-        let filename = req
-            .filename
-            .filter(|f| !f.trim().is_empty())
-            .or(probe.suggested_filename)
-            .unwrap_or_else(|| filename_from_url(&req.url));
-        let filename = sanitize_filename(&filename);
+        let filename = resolve_final_filename(
+            req.filename.as_deref(),
+            probe.suggested_filename.as_deref(),
+            &req.url,
+        );
         let save_dir = req
             .save_dir
             .filter(|d| !d.trim().is_empty())
@@ -1166,16 +1192,57 @@ fn parse_content_range_total(headers: &HeaderMap) -> Option<u64> {
 
 fn parse_content_disposition(headers: &HeaderMap) -> Option<String> {
     let val = headers.get(CONTENT_DISPOSITION)?.to_str().ok()?;
+    let mut fallback: Option<String> = None;
+
     for part in val.split(';') {
         let trimmed = part.trim();
-        if let Some(rest) = trimmed.strip_prefix("filename=") {
-            let cleaned = rest.trim_matches('"').trim();
+        let lower = trimmed.to_ascii_lowercase();
+        if lower.starts_with("filename*=") {
+            let raw = trimmed["filename*=".len()..].trim().trim_matches('"');
+            let encoded = raw
+                .split_once("''")
+                .map(|(_, rest)| rest)
+                .unwrap_or(raw);
+            let decoded = percent_decode_utf8(encoded);
+            let cleaned = decoded.trim();
             if !cleaned.is_empty() {
                 return Some(cleaned.to_string());
             }
+        } else if lower.starts_with("filename=") && fallback.is_none() {
+            let cleaned = trimmed["filename=".len()..].trim().trim_matches('"').trim();
+            if !cleaned.is_empty() {
+                fallback = Some(cleaned.to_string());
+            }
         }
     }
-    None
+    fallback
+}
+
+fn percent_decode_utf8(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
+                out.push((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn build_request_headers(
@@ -1210,6 +1277,33 @@ fn build_request_headers(
         }
     }
     Ok(map)
+}
+
+fn resolve_final_filename(custom: Option<&str>, detected: Option<&str>, url: &str) -> String {
+    let detected_name = detected
+        .filter(|s| !s.trim().is_empty())
+        .map(sanitize_filename)
+        .unwrap_or_else(|| sanitize_filename(&filename_from_url(url)));
+
+    if let Some(custom_raw) = custom.filter(|s| !s.trim().is_empty()) {
+        let custom_clean = sanitize_filename(custom_raw);
+        let custom_has_ext = Path::new(&custom_clean)
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| !e.is_empty());
+        if !custom_has_ext {
+            if let Some(ext) = Path::new(&detected_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .filter(|e| !e.is_empty())
+            {
+                return format!("{custom_clean}.{ext}");
+            }
+        }
+        return custom_clean;
+    }
+
+    detected_name
 }
 
 fn filename_from_url(raw_url: &str) -> String {
@@ -1486,5 +1580,40 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, AppError::NotDownloadLink(_)));
+    }
+
+    #[test]
+    fn preserves_detected_extension_when_custom_filename_omits_it() {
+        assert_eq!(
+            resolve_final_filename(
+                Some("tes-tes"),
+                Some("Silent Partner - Dog Park.mp3"),
+                "https://example.com/audio?id=123",
+            ),
+            "tes-tes.mp3"
+        );
+        assert_eq!(
+            resolve_final_filename(
+                Some("custom.wav"),
+                Some("Silent Partner - Dog Park.mp3"),
+                "https://example.com/audio?id=123",
+            ),
+            "custom.wav"
+        );
+    }
+
+    #[test]
+    fn parses_content_disposition_standard_and_rfc5987() {
+        let mut hdrs = HeaderMap::new();
+        hdrs.insert(
+            CONTENT_DISPOSITION,
+            HeaderValue::from_static(
+                "attachment; filename=\"fallback.mp3\"; filename*=UTF-8''Silent%20Partner%20-%20Dog%20Park.mp3",
+            ),
+        );
+        assert_eq!(
+            parse_content_disposition(&hdrs).as_deref(),
+            Some("Silent Partner - Dog Park.mp3")
+        );
     }
 }

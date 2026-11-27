@@ -35,7 +35,9 @@ pub fn open_or_focus_main_window(app: &AppHandle) -> AppResult<()> {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.unminimize();
         let _ = win.show();
+        let _ = win.set_always_on_top(true);
         let _ = win.set_focus();
+        let _ = win.set_always_on_top(false);
         return Ok(());
     }
 
@@ -51,6 +53,10 @@ pub fn open_or_focus_main_window(app: &AppHandle) -> AppResult<()> {
 
     apply_window_effects(&win);
     attach_destroy_on_close(&win);
+    let _ = win.show();
+    let _ = win.set_always_on_top(true);
+    let _ = win.set_focus();
+    let _ = win.set_always_on_top(false);
     Ok(())
 }
 
