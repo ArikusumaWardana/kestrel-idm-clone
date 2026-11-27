@@ -19,7 +19,7 @@ A fast, local-first download manager for Windows 10/11 built with **Rust + Tauri
 
 ## Installation (Windows)
 
-1. Download `Kestrel_0.1.0_x64-setup.exe` from the **Releases** page.
+1. Download `Kestrel_0.1.1_x64-setup.exe` from the **Releases** page.
 2. Run the installer. If Windows SmartScreen warns about an unrecognized publisher, click **More info** then **Run anyway**.
 
 ### Browser Extension Setup (Optional)

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kestrel Bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Forwards browser downloads and expired-link refreshes to the local Kestrel desktop app.",
   "icons": {
     "128": "icon.png"
