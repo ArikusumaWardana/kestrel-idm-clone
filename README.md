@@ -1,10 +1,10 @@
+<p align="center">
+  <img src="public/banner.webp" alt="Kestrel Banner" width="100%" />
+</p>
+
 # Kestrel
 
 A fast, local-first download manager for Windows 10/11 built with **Rust + Tauri v2**, **Svelte 5**, and a **Manifest V3** browser extension.
-
-<p align="center">
-  <img src="public/logo.png" alt="Kestrel Logo" width="96" />
-</p>
 
 ## Features
 
